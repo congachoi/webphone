@@ -16,6 +16,14 @@ function log(msg, type = 'info') {
   const logDiv = document.getElementById('log');
   if (logDiv) {
     logDiv.appendChild(div); 
+
+    // Tự động xoá nếu vượt quá 100 dòng và tùy chọn được bật
+    if (typeof appConfig !== 'undefined' && appConfig.autoClearLogs && logDiv.children.length > 100) {
+      while (logDiv.children.length > 100) {
+        logDiv.removeChild(logDiv.firstChild);
+      }
+    }
+
     logDiv.scrollTop = logDiv.scrollHeight;
   }
 }
@@ -49,8 +57,8 @@ function addCallToHistory(callData) {
       ...callData,
       timestamp: new Date().toISOString()
     });
-    // Giới hạn 50 bản ghi gần nhất
-    if (history.length > 50) history.pop();
+    // Giới hạn 10 bản ghi gần nhất
+    if (history.length > 10) history.pop();
     localStorage.setItem('webphone_history', JSON.stringify(history));
     renderCallHistory();
   } catch (e) { console.error("Lỗi lưu lịch sử", e); }
@@ -75,7 +83,10 @@ function renderCallHistory() {
     return;
   }
 
-  DOM.callHistoryList.innerHTML = history.map(item => {
+  // Chỉ lấy 10 cuộc gọi gần nhất để hiển thị
+  const displayHistory = history.slice(0, 10);
+
+  DOM.callHistoryList.innerHTML = displayHistory.map(item => {
     const isIncoming = item.direction === 'incoming';
     const icon = isIncoming ? 'bx-phone-incoming' : 'bx-phone-outgoing';
     const iconCol = isIncoming ? 'text-blue-500 bg-blue-50' : 'text-green-500 bg-green-50';
