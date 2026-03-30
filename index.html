@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modern WebPhone - JsSIP</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Boxicons -->
+  <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+    
+    /* Custom Scrollbar cho Terminal Log */
+    #log::-webkit-scrollbar { width: 6px; }
+    #log::-webkit-scrollbar-track { background: #1f2937; }
+    #log::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+    
+    /* Hiệu ứng phím bấm */
+    .dial-btn { transition: all 0.1s; user-select: none; }
+    .dial-btn:active { transform: scale(0.9); background-color: #e5e7eb; }
+    
+    /* Hiệu ứng nhấp nháy khi đang đàm thoại */
+    .pulse-ring { animation: pulse-ring 1.2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+    @keyframes pulse-ring {
+      0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+    }
+  </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col">
+
+  <!-- ==================== AUDIO ELEMENTS ==================== -->
+  <!-- Audio Đàm thoại (WebRTC) -->
+  <!-- Một số trình duyệt chặn audio nếu element không thực sự tồn tại trong layout hoặc kích thước 0x0 -->
+  <audio id="remote-audio" autoplay playsinline style="width: 1px; height: 1px; position: fixed; left: -10px; opacity: 0.01;"></audio>
+  <audio id="local-audio" autoplay muted playsinline class="hidden"></audio>
+
+  <!-- Audio Nhạc Chuông & Nhạc Chờ -->
+  <!-- BẠN CÓ THỂ THAY ĐỔI LINK 'src' THÀNH FILE .mp3 CỦA RIÊNG BẠN -->
+  <audio id="ringtone" loop src="https://tongdai.the20.vn/hihi/phone_ringing.mp3" class="hidden"></audio>
+  <audio id="ringback" loop src="https://tongdai.the20.vn/hihi/skype_ringtone.mp3" class="hidden"></audio>
+
+  <!-- ==================== VIEW 1: LOGIN ==================== -->
+  <div id="login-view" class="flex-1 flex items-center justify-center p-4 transition-opacity duration-300">
+    <div class="bg-white rounded-3xl shadow-xl w-full max-w-md p-8 relative overflow-hidden">
+      <div class="absolute -top-16 -right-16 w-32 h-32 bg-blue-100 rounded-full opacity-50"></div>
+      <div class="absolute top-32 -left-12 w-24 h-24 bg-purple-100 rounded-full opacity-50"></div>
+
+      <div class="text-center mb-8 relative z-10">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-500 text-white text-3xl mb-4 shadow-lg shadow-blue-200">
+          <i class='bx bx-phone-call'></i>
+        </div>
+        <h2 class="text-2xl font-bold text-gray-800">WebPhone SIP</h2>
+        <p class="text-gray-500 text-sm mt-1">Đăng nhập tài khoản tổng đài của bạn</p>
+      </div>
+
+      <form id="login-form" class="space-y-4 relative z-10">
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Tài khoản</label>
+            <input type="text" id="sip_user" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="2001" required>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Mật khẩu</label>
+            <input type="password" id="sip_pass" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="••••••••" required>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">SIP URI (Tuỳ chọn)</label>
+          <input type="text" id="sip_uri" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="Để trống để tự tạo">
+        </div>
+
+        <div class="flex items-center justify-between pt-2">
+          <label class="flex items-center text-sm text-gray-600 cursor-pointer">
+            <input type="checkbox" id="save_config" class="w-4 h-4 text-blue-500 border-gray-300 rounded focus:ring-blue-500" checked>
+            <span class="ml-2">Lưu cấu hình</span>
+          </label>
+          <button type="button" id="btn_open_webhook" class="text-sm font-medium text-blue-500 hover:text-blue-700">
+            <i class='bx bx-cog mr-1'></i> Cài đặt
+          </button>
+        </div>
+
+        <button type="submit" id="btn_register" class="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl shadow-lg shadow-blue-200 transition-all active:scale-[0.98] flex justify-center items-center gap-2">
+          <span>Đăng nhập hệ thống</span>
+          <i class='bx bx-log-in-circle text-xl'></i>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== VIEW 2: PHONE (MAIN) ==================== -->
+  <div id="phone-view" class="hidden flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full flex flex-col gap-6">
+    
+    <!-- Header bar -->
+    <div class="bg-white rounded-2xl shadow-sm p-4 flex justify-between items-center">
+      <div class="flex items-center gap-4">
+        <div class="w-10 h-10 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-xl shadow-inner">
+          <i class='bx bx-user'></i>
+        </div>
+        <div>
+          <h1 class="font-bold text-gray-800" id="display_user">User</h1>
+          <div class="flex items-center gap-2 text-xs">
+            <span id="status_dot" class="w-2.5 h-2.5 rounded-full bg-gray-400"></span>
+            <span id="status_text" class="text-gray-600 font-medium">Offline</span>
+          </div>
+        </div>
+      </div>
+      <button id="btn_logout" class="px-4 py-2 bg-gray-100 hover:bg-red-50 text-red-500 font-medium rounded-xl transition-colors flex items-center gap-2">
+        <i class='bx bx-log-out'></i> <span class="hidden sm:inline">Đăng xuất</span>
+      </button>
+    </div>
+
+    <!-- Main Content Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- COLUMN 1: Numpad & Call Control -->
+      <div class="lg:col-span-4 bg-white rounded-3xl shadow-sm p-6 flex flex-col">
+        
+        <!-- Input Display -->
+        <div class="text-center mb-4">
+          <input type="text" id="call_to" inputmode="tel" class="w-full text-center text-3xl font-bold text-gray-800 border-none bg-transparent focus:ring-0 outline-none placeholder-gray-300" placeholder="Nhập số..." autocomplete="off">
+        </div>
+
+        <!-- Bàn phím số -->
+        <div class="grid grid-cols-3 gap-4 mb-6 px-4" id="numpad">
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-2xl font-semibold shadow-sm border border-gray-100" data-num="1">1</button>
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-2xl font-semibold shadow-sm border border-gray-100 flex flex-col items-center justify-center" data-num="2">2<span class="text-[10px] text-gray-400 font-normal">ABC</span></button>
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-2xl font-semibold shadow-sm border border-gray-100 flex flex-col items-center justify-center" data-num="3">3<span class="text-[10px] text-gray-400 font-normal">DEF</span></button>
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-2xl font-semibold shadow-sm border border-gray-100 flex flex-col items-center justify-center" data-num="4">4<span class="text-[10px] text-gray-400 font-normal">GHI</span></button>
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-2xl font-semibold shadow-sm border border-gray-100 flex flex-col items-center justify-center" data-num="5">5<span class="text-[10px] text-gray-400 font-normal">JKL</span></button>
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-2xl font-semibold shadow-sm border border-gray-100 flex flex-col items-center justify-center" data-num="6">6<span class="text-[10px] text-gray-400 font-normal">MNO</span></button>
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-2xl font-semibold shadow-sm border border-gray-100 flex flex-col items-center justify-center" data-num="7">7<span class="text-[10px] text-gray-400 font-normal">PQRS</span></button>
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-2xl font-semibold shadow-sm border border-gray-100 flex flex-col items-center justify-center" data-num="8">8<span class="text-[10px] text-gray-400 font-normal">TUV</span></button>
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-2xl font-semibold shadow-sm border border-gray-100 flex flex-col items-center justify-center" data-num="9">9<span class="text-[10px] text-gray-400 font-normal">WXYZ</span></button>
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-3xl text-gray-500 shadow-sm border border-gray-100" data-num="*">*</button>
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-2xl font-semibold shadow-sm border border-gray-100 flex flex-col items-center justify-center" data-num="0">0<span class="text-[10px] text-gray-400 font-normal">+</span></button>
+          <button class="dial-btn w-16 h-16 mx-auto bg-gray-50 rounded-full text-2xl font-semibold text-gray-500 shadow-sm border border-gray-100" data-num="#">#</button>
+        </div>
+
+        <!-- Action Buttons (Call, Hangup, Delete) -->
+        <div class="flex justify-center items-center gap-6 mb-4">
+          <button id="btn_delete" aria-label="Xoá" class="w-12 h-12 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex justify-center items-center text-2xl">
+            <i class='bx bx-backspace'></i>
+          </button>
+          
+          <button id="btn_call" aria-label="Gọi đi" class="w-16 h-16 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-lg shadow-green-200 flex justify-center items-center text-3xl">
+            <i class='bx bxs-phone'></i>
+          </button>
+          
+          <button id="btn_hangup" aria-label="Cúp máy" class="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-200 flex justify-center items-center text-3xl hidden">
+            <i class='bx bxs-phone' style="transform: rotate(135deg);"></i>
+          </button>
+          
+          <div class="w-12 h-12"></div> <!-- Spacer để cân bằng -->
+        </div>
+
+        <!-- In-Call / Incoming Call Controls -->
+        <div id="call_controls" class="hidden flex-col gap-3 mt-4 pt-4 border-t border-gray-100">
+          
+          <!-- Menu khi có cuộc gọi ĐẾN -->
+          <div id="incoming_controls" class="hidden flex justify-center gap-4 w-full">
+            <button id="btn_answer" class="flex-1 bg-green-500 hover:bg-green-600 text-white py-2.5 rounded-xl font-medium flex justify-center items-center gap-2"><i class='bx bx-phone-incoming'></i> Nghe máy</button>
+            <button id="btn_reject" class="flex-1 bg-red-500 hover:bg-red-600 text-white py-2.5 rounded-xl font-medium flex justify-center items-center gap-2"><i class='bx bx-phone-off'></i> Từ chối</button>
+          </div>
+
+          <!-- Menu khi ĐANG ĐÀM THOẠI -->
+          <div id="incall_controls" class="hidden grid grid-cols-2 gap-3 w-full">
+            <!-- Mute / Unmute -->
+            <button id="btn_mute" class="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-xl text-sm font-medium flex justify-center items-center gap-1"><i class='bx bx-microphone-off'></i> Tắt Mic</button>
+            <button id="btn_unmute" class="hidden bg-blue-100 hover:bg-blue-200 text-blue-700 py-2 rounded-xl text-sm font-medium flex justify-center items-center gap-1"><i class='bx bx-microphone'></i> Bật Mic</button>
+            
+            <!-- Hold / Unhold -->
+            <button id="btn_hold" class="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-xl text-sm font-medium flex justify-center items-center gap-1"><i class='bx bx-pause-circle'></i> Giữ máy</button>
+            <button id="btn_unhold" class="hidden bg-yellow-100 hover:bg-yellow-200 text-yellow-700 py-2 rounded-xl text-sm font-medium flex justify-center items-center gap-1"><i class='bx bx-play-circle'></i> Tiếp tục</button>
+            
+            <!-- Transfer (Chuyển máy) -->
+            <div class="col-span-2 flex gap-2">
+              <input type="text" id="transfer_to" class="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 text-sm focus:ring-1 outline-none" placeholder="Số cần chuyển tiếp...">
+              <button id="btn_transfer" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-4 py-2 rounded-xl text-sm font-medium transition-colors">Chuyển</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- COLUMN 2: Status & System Logs -->
+      <div class="lg:col-span-8 flex flex-col gap-6">
+        
+        <!-- Info Card (Hiển thị khi đang gọi) -->
+        <div id="call-info" class="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl shadow-md p-6 text-white hidden relative overflow-hidden">
+          <div class="absolute right-0 top-0 opacity-10 text-9xl"><i class='bx bx-support'></i></div>
+          <div class="relative z-10">
+            <h3 class="text-sm font-semibold uppercase tracking-wider text-blue-100 mb-4 flex items-center gap-2">
+              <i class='bx bx-info-circle'></i> Thông tin cuộc gọi
+            </h3>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-white/10 p-4 rounded-xl backdrop-blur-sm">
+              <div><span class="text-blue-200 block text-xs">Từ (From):</span> <strong id="info_from" class="text-base">-</strong></div>
+              <div><span class="text-blue-200 block text-xs">Đến (To):</span> <strong id="info_to" class="text-base">-</strong></div>
+              <div><span class="text-blue-200 block text-xs">Trạng thái:</span> <strong id="info_state">-</strong></div>
+              <div><span class="text-blue-200 block text-xs">Thời gian:</span> <strong id="call_duration" class="text-base text-yellow-300">00:00</strong></div>
+              <div><span class="text-blue-200 block text-xs">Hướng cuộc gọi:</span> <strong id="info_dir">-</strong></div>
+            </div>
+            <div class="mt-4 flex items-center gap-2 text-xs bg-white/20 inline-block px-3 py-1.5 rounded-full backdrop-blur-sm">
+              <span id="audio_dot" class="w-2 h-2 rounded-full bg-white opacity-50"></span>
+              <span id="audio_text" class="font-medium">Audio: Standby</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Call History -->
+        <div class="bg-white rounded-2xl shadow-md flex-1 flex flex-col min-h-[300px] border border-gray-100">
+          <div class="flex justify-between items-center p-3 border-b border-gray-100 bg-gray-50 rounded-t-2xl">
+            <h3 class="text-sm font-bold text-gray-700 flex items-center gap-2">
+              <i class='bx bx-history text-blue-500'></i> Lịch sử cuộc gọi
+            </h3>
+            <button id="btn_clear_history" class="text-xs text-gray-400 hover:text-red-500 transition-colors">Xoá hết</button>
+          </div>
+          <div id="call_history_list" class="p-0 overflow-y-auto flex-1 h-64">
+            <div class="p-8 text-center text-gray-400 text-sm">Chưa có lịch sử cuộc gọi</div>
+          </div>
+        </div>
+
+        <!-- Terminal Logs -->
+        <div class="bg-gray-900 rounded-2xl shadow-md flex-1 flex flex-col min-h-[300px] border border-gray-800">
+          <div class="flex justify-between items-center p-3 border-b border-gray-800 bg-gray-800/50 rounded-t-2xl">
+            <div class="flex items-center gap-2">
+              <div class="w-3 h-3 rounded-full bg-red-500"></div>
+              <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+              <div class="w-3 h-3 rounded-full bg-green-500"></div>
+              <span class="ml-2 text-xs text-gray-400 font-mono">system_logs</span>
+            </div>
+            <button id="btn_clear_log" class="text-xs text-gray-400 hover:text-white transition-colors"><i class='bx bx-trash'></i> Clear</button>
+          </div>
+          <div id="log" class="p-4 text-[13px] font-mono overflow-y-auto flex-1 h-64 text-gray-300">
+            <!-- Nội dung log sẽ hiển thị ở đây -->
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: WEBHOOK SETTINGS ==================== -->
+  <div id="webhook-modal" class="fixed inset-0 bg-gray-900/50 backdrop-blur-sm hidden flex justify-center items-center z-50 transition-opacity">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 transform transition-all scale-95 opacity-0" id="webhook-modal-content">
+      
+      <div class="flex justify-between items-center mb-5">
+        <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2"><i class='bx bx-cog text-blue-500'></i> Cài đặt hệ thống</h3>
+        <button id="btn_close_webhook_top" class="text-gray-400 hover:text-red-500 text-2xl leading-none">&times;</button>
+      </div>
+      
+      <div class="space-y-4">
+        <!-- SIP Connection Settings -->
+        <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+          <label class="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+            <i class='bx bx-server text-blue-500'></i> Cấu hình kết nối SIP
+          </label>
+          <div>
+            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Máy chủ WSS</label>
+            <input type="text" id="settings_sip_ws" class="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="wss://tongdai.domain.com:443/ws">
+          </div>
+        </div>
+
+        <!-- Audio Devices Settings -->
+        <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+          <label class="block text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+            <i class='bx bx-headphone text-blue-500'></i> Thiết bị âm thanh
+          </label>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Microphone (Đầu vào)</label>
+              <select id="audio_input_device" class="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Loa / Tai nghe (Đầu ra)</label>
+              <select id="audio_output_device" class="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Enable toggle -->
+        <label class="flex items-center p-3 bg-gray-50 rounded-xl border border-gray-200 cursor-pointer">
+          <input type="checkbox" id="webhook_enable" class="w-5 h-5 text-blue-600 rounded border-gray-300">
+          <span class="ml-3 font-medium text-gray-700">Kích hoạt Gửi sự kiện Webhook</span>
+        </label>
+
+        <!-- URL Input -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Webhook URL</label>
+          <input type="text" id="webhook_url" class="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="https://your-api.com/webhook">
+        </div>
+
+        <!-- Event checkboxes -->
+        <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Sự kiện (Events) gửi đi:</label>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <label class="flex items-center"><input type="checkbox" id="event_registered" class="mr-2 text-blue-600 rounded"> Registered</label>
+            <label class="flex items-center"><input type="checkbox" id="event_incoming" class="mr-2 text-blue-600 rounded"> Incoming Call</label>
+            <label class="flex items-center"><input type="checkbox" id="event_accepted" class="mr-2 text-blue-600 rounded"> Call Accepted</label>
+            <label class="flex items-center"><input type="checkbox" id="event_ended" class="mr-2 text-blue-600 rounded"> Call Ended</label>
+            <label class="flex items-center"><input type="checkbox" id="event_failed" class="mr-2 text-blue-600 rounded"> Call Failed</label>
+            <label class="flex items-center"><input type="checkbox" id="event_logout" class="mr-2 text-blue-600 rounded"> Logout</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="mt-6 flex justify-end gap-3">
+        <button id="btn_close_webhook" class="px-5 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors">Đóng</button>
+        <button id="btn_save_webhook" class="px-5 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium shadow-md transition-colors">Lưu cài đặt</button>
+      </div>
+      
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <!-- JsSIP CDN (Thư viện xử lý SIP/WebRTC) -->
+  <script src="https://cdn.jsdelivr.net/npm/jssip@3/dist/jssip.min.js"></script>
+  <!-- Refactored Scripts -->
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/media.js"></script>
+  <script src="js/phone.js"></script>
+  <!-- App JS -->
+  <script src="app.js"></script>
+</body>
+</html>
